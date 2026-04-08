@@ -417,7 +417,7 @@ print_usage() {
 
 while getopts "p:s:R" opt; do
 	case "$opt" in
-		p) RAW_PLATFORM="${OPTARG}"; PIP_PLATFORM="--platform ${OPTARG} --only-binary=:all:" ;;
+		p) RAW_PLATFORM="${OPTARG}"; p) PIP_PLATFORM="--platform ${OPTARG} --only-binary=:all: --no-binary=docopt" ;;
 		s) PACKAGE_SUFFIX="${OPTARG}" ;;
 		R) PRERELEASE_ALLOW=1 ;;
 		*) print_usage; exit 1 ;;
