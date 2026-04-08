@@ -5,9 +5,9 @@ DEFAULT_GITHUB_API_URL=https://github.com
 DEFAULT_MARKETPLACE_API_URL=https://marketplace.dify.ai
 DEFAULT_PIP_MIRROR_URL=https://mirrors.aliyun.com/pypi/simple
 
-GITHUB_API_URL="${GITHUB_API_URL:-$DEFAULT_GITHUB_API_URL}"
-MARKETPLACE_API_URL="${MARKETPLACE_API_URL:-$DEFAULT_MARKETPLACE_API_URL}"
-PIP_MIRROR_URL="${PIP_MIRROR_URL:-$DEFAULT_PIP_MIRROR_URL}"
+GITHUB_API_URL=""){GITHUB_API_URL:-$DEFAULT_GITHUB_API_URL}"
+MARKETPLACE_API_URL=""){MARKETPLACE_API_URL:-$DEFAULT_MARKETPLACE_API_URL}"
+PIP_MIRROR_URL=""){PIP_MIRROR_URL:-$DEFAULT_PIP_MIRROR_URL}"
 
 CURR_DIR=`dirname $0`
 cd $CURR_DIR || exit 1
@@ -15,7 +15,7 @@ CURR_DIR=`pwd`
 USER=`whoami`
 ARCH_NAME=`uname -m`
 OS_TYPE=$(uname)
-OS_TYPE=$(echo "$OS_TYPE" | tr '[:upper:]' '[:lower:]')
+OS_TYPE=$(echo "${OS_TYPE}" | tr '[:upper:]' '[:lower:]')
 
 CMD_NAME="dify-plugin-${OS_TYPE}-amd64"
 if [[ "arm64" == "$ARCH_NAME" || "aarch64" == "$ARCH_NAME" ]]; then
@@ -107,7 +107,6 @@ github(){
 
 	repackage ${PLUGIN_PACKAGE_PATH}
 }
-
 _local(){
 	echo $2
 	if [[ -z "$2" ]]; then
@@ -122,7 +121,6 @@ _local(){
 	PLUGIN_PACKAGE_PATH=`realpath $2`
 	repackage ${PLUGIN_PACKAGE_PATH}
 }
-
 repackage(){
 	local PACKAGE_PATH=$1
 	PACKAGE_NAME_WITH_EXTENSION=`basename ${PACKAGE_PATH}`
@@ -152,9 +150,9 @@ repackage(){
 	fi
 
 	# Inject [tool.uv] config into pyproject.toml (runtime will use local wheels offline)
-	inject_uv_into_pyproject() {
-		local PYFILE="$1"
-		[ -f "$PYFILE" ] || return 0
+inject_uv_into_pyproject() {
+	local PYFILE="$1"
+	[ -f "$PYFILE" ] || return 0
 	awk '
 		BEGIN { in_uv=0; saw_uv=0; saw_no=0; saw_find=0; saw_pre=0 }
 		function print_missing(){ if (!saw_no) print "no-index = true"; if (!saw_find) print "find-links = [\"./wheels\"]"; if (!saw_pre) print "prerelease = \"allow\"" }
@@ -327,17 +325,28 @@ PY
 	echo ""
 	echo "=========================================="
 	echo "Step 3: Downloading dependencies"
-	echo "=========================================="
-	echo "Index URL: ${PIP_MIRROR_URL}"
+	# ============================
+	
+echo "Index URL: ${PIP_MIRROR_URL}"
 	[ -n "$PIP_PLATFORM" ] && echo "Platform: ${RAW_PLATFORM}"
 
 	mkdir -p ./wheels
-	echo "Downloading wheels to ./wheels/..."
-	${PIP_CMD} download ${PIP_PLATFORM} --prefer-binary -r requirements.txt -d ./wheels \
-		--index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com
+	echo "Downloading/building wheels to ./wheels/..."
+
+	if [[ -n "$PIP_PLATFORM" ]]; then
+	  ${PIP_CMD} download ${PIP_PLATFORM} \
+	    --only-binary=:all: --no-binary=:none: \
+	    -r requirements.txt -d ./wheels \
+	    --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com
+	else
+	  ${PIP_CMD} wheel \
+	    -r requirements.txt -w ./wheels \
+	    --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com
+	fi
+
 	if [[ $? -ne 0 ]]; then
-		echo "✗ Error: Failed to download dependencies"
-		exit 1
+	  echo "✗ Error: Failed to prepare wheels"
+	  exit 1
 	fi
 
 	# Count downloaded wheels
@@ -435,14 +444,13 @@ case "$1" in
 	market $@
 	;;
 	'github')
-	github $@
+github $@
 	;;
 	'local')
 	_local $@
 	;;
 	*)
-
-print_usage
-exit 1
+	print_usage
+	exit 1
 esac
 exit 0
