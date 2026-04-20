@@ -29,6 +29,7 @@ PIP_PLATFORM=""
 RAW_PLATFORM=""    # raw value from -p, e.g. manylinux2014_x86_64
 PACKAGE_SUFFIX="offline"
 PRERELEASE_ALLOW=0
+RELAX_VERSION_SPECS=0
 
 market(){
 	if [[ -z "$2" || -z "$3" || -z "$4" ]]; then
@@ -339,23 +340,31 @@ PY
 	TRUSTED_HOST_ARG=()
 	[ -n "$PIP_TRUSTED_HOST" ] && TRUSTED_HOST_ARG=(--trusted-host "${PIP_TRUSTED_HOST}")
 
-	if [[ -n "$PIP_PLATFORM" ]]; then
-	  # Cross-platform: pip forbids resolving deps with sdists under --platform.
-	  # So we can only download existing wheels here.
-	  ${PIP_CMD} download ${PIP_PLATFORM} \
-	    --only-binary=:all: --no-binary=:none: \
-	    -r requirements.txt -d ./wheels \
-	    --index-url ${PIP_MIRROR_URL} "${TRUSTED_HOST_ARG[@]}"
-	else
-	  # Native platform: build wheels locally (sdists will be built into wheels)
-	  ${PIP_CMD} wheel \
-	    -r requirements.txt -w ./wheels \
-	    --index-url ${PIP_MIRROR_URL} "${TRUSTED_HOST_ARG[@]}"
-	fi
+	run_download() {
+		if [[ -n "$PIP_PLATFORM" ]]; then
+		  ${PIP_CMD} download ${PIP_PLATFORM} \
+		    --only-binary=:all: --no-binary=:none: \
+		    -r requirements.txt -d ./wheels \
+		    --index-url ${PIP_MIRROR_URL} "${TRUSTED_HOST_ARG[@]}"
+		else
+		  ${PIP_CMD} wheel \
+		    -r requirements.txt -w ./wheels \
+		    --index-url ${PIP_MIRROR_URL} "${TRUSTED_HOST_ARG[@]}"
+		fi
+	}
 
-	if [[ $? -ne 0 ]]; then
-	  echo "✗ Error: Failed to prepare wheels"
-	  exit 1
+	if run_download; then
+	  :
+	else
+	  if [[ "$RELAX_VERSION_SPECS" -eq 1 ]]; then
+	    echo "⚠ Initial dependency download failed. Retrying with relaxed version specifiers..."
+	    relax_requirements_file "requirements.txt"
+	    rm -rf ./wheels/*
+	    run_download || { echo "✗ Error: Failed to prepare wheels even after relaxing versions"; exit 1; }
+	  else
+	    echo "✗ Error: Failed to prepare wheels"
+	    exit 1
+	  fi
 	fi
 
 	# Count downloaded wheels
@@ -423,17 +432,67 @@ install_unzip(){
 	fi
 }
 
+relax_requirements_file() {
+	local req_file="$1"
+	[ -f "$req_file" ] || return 0
+
+	echo "Relaxing strict version specifiers in ${req_file}..."
+
+	python3 - "$req_file" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+out = []
+
+for line in text.splitlines():
+    stripped = line.strip()
+
+    # Keep comments / blank / options untouched
+    if not stripped or stripped.startswith("#") or stripped.startswith("-"):
+        out.append(line)
+        continue
+
+    # Do not touch direct URLs / VCS / editable installs
+    if "@" in stripped or "git+" in stripped or "://" in stripped or stripped.startswith("-e "):
+        out.append(line)
+        continue
+
+    # Relax only simple compatible-release pins: pkg~=X.Y.Z  -> pkg~=X.Y
+    m = re.match(r'^([A-Za-z0-9_.-]+)\s*~=\s*(\d+)\.(\d+)\.(\d+)(\s*;.*)?$', stripped)
+    if m:
+        name, major, minor, patch, marker = m.groups()
+        new_line = f"{name}~={major}.{minor}"
+        if marker:
+            new_line += marker
+        out.append(new_line)
+        continue
+
+    out.append(line)
+
+path.write_text("\n".join(out) + "\n", encoding="utf-8")
+PY
+
+	echo "✓ Relaxed compatible-release pins"
+	echo "----- requirements.txt -----"
+	cat "$req_file"
+	echo "----------------------------"
+}
+
 print_usage() {
-	echo "usage: $0 [-p platform] [-s package_suffix] [-R] {market|github|local}"
+	echo "usage: $0 [-p platform] [-s package_suffix] [-R] [-L] {market|github|local}"
 	echo "-p platform: python packages' platform. Using for crossing repacking.
         For example: -p manylinux2014_x86_64 or -p manylinux2014_aarch64"
 	echo "-s package_suffix: The suffix name of the output offline package.
         For example: -s linux-amd64 or -s linux-arm64"
 	echo "-R: allow pre-release versions during uv resolution (maps to --prerelease=allow)"
+	echo "-L: relax strict version specifiers on retry (for example, ~=X.Y.Z -> ~=X.Y)"
 	exit 1
 }
 
-while getopts "p:s:R" opt; do
+while getopts "p:s:RL" opt; do
 	case "$opt" in
 		p)
 			RAW_PLATFORM="${OPTARG}"
@@ -441,6 +500,7 @@ while getopts "p:s:R" opt; do
 			;;
 		s) PACKAGE_SUFFIX="${OPTARG}" ;;
 		R) PRERELEASE_ALLOW=1 ;;
+		L) RELAX_VERSION_SPECS=1 ;;
 		*) print_usage; exit 1 ;;
 	esac
 done
