@@ -3,11 +3,13 @@
 
 DEFAULT_GITHUB_API_URL=https://github.com
 DEFAULT_MARKETPLACE_API_URL=https://marketplace.dify.ai
-DEFAULT_PIP_MIRROR_URL=https://mirrors.aliyun.com/pypi/simple
+DEFAULT_PIP_MIRROR_URL=https://pypi.org/simple
+DEFAULT_PIP_TRUSTED_HOST=
 
 GITHUB_API_URL="${GITHUB_API_URL:-$DEFAULT_GITHUB_API_URL}"
 MARKETPLACE_API_URL="${MARKETPLACE_API_URL:-$DEFAULT_MARKETPLACE_API_URL}"
 PIP_MIRROR_URL="${PIP_MIRROR_URL:-$DEFAULT_PIP_MIRROR_URL}"
+PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-$DEFAULT_PIP_TRUSTED_HOST}"
 
 CURR_DIR=`dirname $0`
 cd $CURR_DIR || exit 1
@@ -329,10 +331,13 @@ PY
 	echo "Step 3: Downloading dependencies"
 	echo "=========================================="
 	echo "Index URL: ${PIP_MIRROR_URL}"
+	[ -n "$PIP_TRUSTED_HOST" ] && echo "Trusted Host: ${PIP_TRUSTED_HOST}"
 	[ -n "$PIP_PLATFORM" ] && echo "Platform: ${RAW_PLATFORM}"
 
 	mkdir -p ./wheels
 	echo "Downloading/building wheels to ./wheels/..."
+	TRUSTED_HOST_ARG=()
+	[ -n "$PIP_TRUSTED_HOST" ] && TRUSTED_HOST_ARG=(--trusted-host "${PIP_TRUSTED_HOST}")
 
 	if [[ -n "$PIP_PLATFORM" ]]; then
 	  # Cross-platform: pip forbids resolving deps with sdists under --platform.
@@ -340,12 +345,12 @@ PY
 	  ${PIP_CMD} download ${PIP_PLATFORM} \
 	    --only-binary=:all: --no-binary=:none: \
 	    -r requirements.txt -d ./wheels \
-	    --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com
+	    --index-url ${PIP_MIRROR_URL} "${TRUSTED_HOST_ARG[@]}"
 	else
 	  # Native platform: build wheels locally (sdists will be built into wheels)
 	  ${PIP_CMD} wheel \
 	    -r requirements.txt -w ./wheels \
-	    --index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com
+	    --index-url ${PIP_MIRROR_URL} "${TRUSTED_HOST_ARG[@]}"
 	fi
 
 	if [[ $? -ne 0 ]]; then
