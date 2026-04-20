@@ -323,17 +323,20 @@ PY
 	fi
 
 	[ ! -f "requirements.txt" ] && echo "✗ Error: requirements.txt not found" && exit 1
-	# Optionally patch strict dependency pins from marketplace plugins
+	# Patch marketplace plugin dependencies before downloading wheels
 	if [ -f "requirements.txt" ]; then
 		echo "Patching requirements.txt for compatibility..."
 	
-		# pypandoc-binary: current visible release is 1.17, while ~=1.16.2 excludes 1.17
-		sed -i 's/^pypandoc-binary~=1\.16\.2$/pypandoc-binary==1.17/' requirements.txt
+		# Allow current visible pypandoc-binary release
+		sed -E -i 's/^pypandoc-binary[[:space:]]*~=[[:space:]]*1\.16\.2([[:space:]]*;.*)?$/pypandoc-binary==1.17\1/' requirements.txt
+	
+		# Remove dify_plugin to avoid pulling gevent in cross-platform wheel-only mode
+		sed -E -i '/^dify_plugin([[:space:]]*[<>=!~].*)?([[:space:]]*;.*)?$/d' requirements.txt
 	
 		echo "✓ requirements.txt patched"
-		echo "----- requirements.txt (patched) -----"
-		grep -n 'pypandoc-binary' requirements.txt || true
-		echo "--------------------------------------"
+		echo "----- key requirements after patch -----"
+		grep -nE 'dify_plugin|pypandoc-binary|gevent' requirements.txt || true
+		echo "----------------------------------------"
 	fi
 	# ============================================
 	# Step 3: Download Python dependencies as wheels
